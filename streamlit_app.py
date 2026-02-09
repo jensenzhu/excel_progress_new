@@ -223,7 +223,7 @@ if st.button("开始处理", type="primary", use_container_width=True):
                 st.markdown("### ⚠️ ERP库存表中有但订单表中没有的产品型号")
                 st.info(f"共找到 {len(models_in_erp_not_in_order)} 个产品型号在ERP库存表中存在，但在订单表中不存在：")
                 
-                def find_similar_model(target_model, all_models, threshold=0.85):
+                def find_similar_model(target_model, all_models, threshold=0.6):
                     best_match = None
                     best_ratio = 0
                     for model in all_models:
@@ -285,5 +285,5 @@ st.markdown("""
 - 只有非负数的差值才会填入订单表，负数会被跳过
 - 处理后的文件会保留原始格式和图片
 - 会显示ERP库存表中有但订单表中没有的产品型号
-- 对于缺失的型号，会显示订单表中相似度最高的型号（相似度≥85%）
+- 对于缺失的型号，会显示订单表中相似度最高的型号（相似度≥60%）
 """)
