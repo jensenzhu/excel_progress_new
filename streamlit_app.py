@@ -109,7 +109,8 @@ if st.button("开始处理", type="primary", use_container_width=True):
             for col in model_cols[1:]:
                 df_source['产品型号'] = df_source['产品型号'].fillna(df_source[col])
             
-            status_text.text(f"✅ 成功提取产品型号，共 {df_source['产品型号'].notna().sum()} 个")
+            erp_models = set(df_source['产品型号'].dropna().unique())
+            status_text.text(f"✅ 成功提取产品型号，共 {len(erp_models)} 个")
             progress_bar.progress(50)
             
             status_text.text("📊 计算差值...")
@@ -178,18 +179,21 @@ if st.button("开始处理", type="primary", use_container_width=True):
             
             model_diff_map = df_source.set_index('产品型号')['差值'].to_dict()
             
+            order_models = set()
             updated_count = 0
             skipped_count = 0
             for row in range(4, ws.max_row + 1):
                 model = ws.cell(row=row, column=product_model_col_idx).value
                 
-                if model and model in model_diff_map:
-                    diff_value = model_diff_map[model]
-                    if diff_value >= 0:
-                        ws.cell(row=row, column=target_col_idx).value = diff_value
-                        updated_count += 1
-                    else:
-                        skipped_count += 1
+                if model:
+                    order_models.add(model)
+                    if model in model_diff_map:
+                        diff_value = model_diff_map[model]
+                        if diff_value >= 0:
+                            ws.cell(row=row, column=target_col_idx).value = diff_value
+                            updated_count += 1
+                        else:
+                            skipped_count += 1
             
             status_text.text(f"✅ 数据更新完成，共更新了 {updated_count} 个单元格，跳过 {skipped_count} 个负数")
             progress_bar.progress(90)
@@ -210,6 +214,20 @@ if st.button("开始处理", type="primary", use_container_width=True):
             
             os.unlink(tmp_dist_path)
             os.unlink(tmp_output_path)
+            
+            models_in_erp_not_in_order = sorted(erp_models - order_models)
+            
+            if models_in_erp_not_in_order:
+                st.markdown("---")
+                st.markdown("### ⚠️ ERP库存表中有但订单表中没有的产品型号")
+                st.info(f"共找到 {len(models_in_erp_not_in_order)} 个产品型号在ERP库存表中存在，但在订单表中不存在：")
+                
+                cols_per_row = 5
+                for i in range(0, len(models_in_erp_not_in_order), cols_per_row):
+                    cols = st.columns(cols_per_row)
+                    for j, col in enumerate(cols):
+                        if i + j < len(models_in_erp_not_in_order):
+                            col.markdown(f"**{models_in_erp_not_in_order[i + j]}**")
             
         except Exception as e:
             st.error(f"❌ 处理过程中发生错误: {str(e)}")
@@ -249,4 +267,5 @@ st.markdown("""
 - 系统会自动提取产品型号并计算差值（30天销量 - 实际可用数）
 - 只有非负数的差值才会填入订单表，负数会被跳过
 - 处理后的文件会保留原始格式和图片
+- 会显示ERP库存表中有但订单表中没有的产品型号
 """)
