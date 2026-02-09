@@ -118,7 +118,7 @@ if st.button("开始处理", type="primary", use_container_width=True):
                 st.error("❌ ERP库存表中缺少'实际可用数'或'30天销量'列")
                 st.stop()
             
-            df_source['差值'] = df_source['实际可用数'] - df_source['30天销量']
+            df_source['差值'] = df_source['30天销量'] - df_source['实际可用数']
             status_text.text(f"✅ 成功计算差值")
             progress_bar.progress(60)
             
@@ -179,15 +179,19 @@ if st.button("开始处理", type="primary", use_container_width=True):
             model_diff_map = df_source.set_index('产品型号')['差值'].to_dict()
             
             updated_count = 0
+            skipped_count = 0
             for row in range(4, ws.max_row + 1):
                 model = ws.cell(row=row, column=product_model_col_idx).value
                 
                 if model and model in model_diff_map:
                     diff_value = model_diff_map[model]
-                    ws.cell(row=row, column=target_col_idx).value = diff_value
-                    updated_count += 1
+                    if diff_value >= 0:
+                        ws.cell(row=row, column=target_col_idx).value = diff_value
+                        updated_count += 1
+                    else:
+                        skipped_count += 1
             
-            status_text.text(f"✅ 数据更新完成，共更新了 {updated_count} 个单元格")
+            status_text.text(f"✅ 数据更新完成，共更新了 {updated_count} 个单元格，跳过 {skipped_count} 个负数")
             progress_bar.progress(90)
             
             status_text.text("💾 保存文件...")
@@ -202,7 +206,7 @@ if st.button("开始处理", type="primary", use_container_width=True):
             progress_bar.progress(100)
             status_text.text("✅ 处理完成！")
             
-            st.success(f"🎉 处理成功！共更新了 {updated_count} 个产品型号")
+            st.success(f"🎉 处理成功！共更新了 {updated_count} 个产品型号，跳过 {skipped_count} 个负数")
             
             os.unlink(tmp_dist_path)
             os.unlink(tmp_output_path)
@@ -242,6 +246,7 @@ st.markdown("""
 **注意事项：**
 - ERP库存表需要包含"实际可用数"和"30天销量"列
 - 订单表需要包含"产品型号"列和指定的目标列
-- 系统会自动提取产品型号并计算差值
+- 系统会自动提取产品型号并计算差值（30天销量 - 实际可用数）
+- 只有非负数的差值才会填入订单表，负数会被跳过
 - 处理后的文件会保留原始格式和图片
 """)
