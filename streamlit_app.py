@@ -5,6 +5,7 @@ from datetime import datetime
 from openpyxl import load_workbook
 import tempfile
 import os
+import difflib
 
 st.set_page_config(
     page_title="Excel数据处理工具",
@@ -222,12 +223,28 @@ if st.button("开始处理", type="primary", use_container_width=True):
                 st.markdown("### ⚠️ ERP库存表中有但订单表中没有的产品型号")
                 st.info(f"共找到 {len(models_in_erp_not_in_order)} 个产品型号在ERP库存表中存在，但在订单表中不存在：")
                 
+                def find_similar_model(target_model, all_models, threshold=0.85):
+                    best_match = None
+                    best_ratio = 0
+                    for model in all_models:
+                        ratio = difflib.SequenceMatcher(None, target_model, model).ratio()
+                        if ratio >= threshold and ratio > best_ratio:
+                            best_ratio = ratio
+                            best_match = model
+                    return best_match, best_ratio
+                
                 cols_per_row = 5
                 for i in range(0, len(models_in_erp_not_in_order), cols_per_row):
                     cols = st.columns(cols_per_row)
                     for j, col in enumerate(cols):
                         if i + j < len(models_in_erp_not_in_order):
-                            col.markdown(f"**{models_in_erp_not_in_order[i + j]}**")
+                            missing_model = models_in_erp_not_in_order[i + j]
+                            similar_model, similarity = find_similar_model(missing_model, order_models)
+                            
+                            if similar_model:
+                                col.markdown(f"**{missing_model}** → {similar_model} ({similarity*100:.0f}%)")
+                            else:
+                                col.markdown(f"**{missing_model}**")
             
         except Exception as e:
             st.error(f"❌ 处理过程中发生错误: {str(e)}")
@@ -268,4 +285,5 @@ st.markdown("""
 - 只有非负数的差值才会填入订单表，负数会被跳过
 - 处理后的文件会保留原始格式和图片
 - 会显示ERP库存表中有但订单表中没有的产品型号
+- 对于缺失的型号，会显示订单表中相似度最高的型号（相似度≥85%）
 """)
