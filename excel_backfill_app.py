@@ -271,6 +271,8 @@ if 'source_df' in st.session_state and 'target_df' in st.session_state:
     st.divider()
     st.subheader("列映射配置")
     
+    prefix = st.text_input("商品编码前缀（可选，将添加到商品编码前）", value="", key="code_prefix")
+    
     auto_mapping = auto_match_columns(source_headers, target_headers)
     
     col1, col2, col3 = st.columns([2, 1, 2])
@@ -347,7 +349,10 @@ if 'source_df' in st.session_state and 'target_df' in st.session_state:
                     
                     if pd.notna(source_value):
                         cell = ws.cell(row=target_row, column=target_col_idx)
-                        cell.value = source_value
+                        if target_col_name == "商品编码" and prefix:
+                            cell.value = prefix + str(source_value)
+                        else:
+                            cell.value = source_value
                 
                 imported_count += 1
             
