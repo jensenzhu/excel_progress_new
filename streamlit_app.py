@@ -4,24 +4,62 @@ import io
 from datetime import datetime
 from openpyxl import load_workbook
 from openpyxl import Workbook
+from openpyxl.styles import Font, Fill, Border, Alignment, Protection
+from openpyxl.utils import get_column_letter
 import tempfile
 import os
+import shutil
 import difflib
 
-def convert_xls_to_xlsx(xls_content):
-    """将 .xls 文件内容转换为 .xlsx 格式"""
+def convert_xls_to_xlsx_with_format(xls_content):
+    """将 .xls 文件内容转换为 .xlsx 格式，尽可能保留格式"""
     try:
-        df = pd.read_excel(io.BytesIO(xls_content), engine='xlrd', header=None)
+        import xlrd
+        xls_book = xlrd.open_workbook(file_contents=xls_content, formatting_info=True)
+        xls_sheet = xls_book.sheet_by_index(0)
     except Exception as e:
         raise Exception(f"无法读取 .xls 文件: {str(e)}")
     
     wb = Workbook()
     ws = wb.active
+    ws.title = xls_sheet.name if xls_sheet.name else "Sheet1"
     
-    for row_idx, row in df.iterrows():
-        for col_idx, value in enumerate(row, start=1):
-            if pd.notna(value):
-                ws.cell(row=row_idx + 1, column=col_idx, value=value)
+    xf_list = xls_book.xf_list
+    font_list = xls_book.font_list
+    
+    for row_idx in range(xls_sheet.nrows):
+        xls_row = xls_sheet.row(row_idx)
+        for col_idx in range(xls_sheet.ncols):
+            cell = xls_sheet.cell(row_idx, col_idx)
+            value = cell.value
+            
+            if value is not None and value != '':
+                ws.cell(row=row_idx + 1, column=col_idx + 1, value=value)
+                
+                try:
+                    xf_index = cell.xf_index
+                    if xf_index < len(xf_list):
+                        xf = xf_list[xf_index]
+                        font_index = xf.font_index
+                        if font_index < len(font_list):
+                            xls_font = font_list[font_index]
+                            new_font = Font(
+                                bold=xls_font.bold,
+                                italic=xls_font.italic,
+                                name=xls_font.name,
+                                size=xls_font.height / 20 if xls_font.height else 11
+                            )
+                            ws.cell(row=row_idx + 1, column=col_idx + 1).font = new_font
+                except Exception:
+                    pass
+    
+    for col_idx in range(xls_sheet.ncols):
+        try:
+            col_width = xls_sheet.computed_column_width(col_idx)
+            if col_width:
+                ws.column_dimensions[get_column_letter(col_idx + 1)].width = col_width / 256.0 * 7
+        except Exception:
+            pass
     
     output = io.BytesIO()
     wb.save(output)
@@ -120,76 +158,83 @@ st.markdown("### ⚙️ 处理配置")
 if dist_file:
     st.markdown("#### 📋 订单表列识别")
     
-    dist_content = dist_file.getvalue()
-    file_ext = dist_file.name.lower().split('.')[-1] if dist_file.name else 'xlsx'
+    dist_file_ext = dist_file.name.lower().split('.')[-1] if dist_file.name else 'xlsx'
     
-    if file_ext == 'xls':
-        st.info("🔄 检测到 .xls 格式，正在转换为 .xlsx...")
-        try:
-            dist_content = convert_xls_to_xlsx(dist_content)
-            st.success("✅ 转换成功！")
-        except Exception as e:
-            st.error(f"❌ 转换失败: {str(e)}")
-            st.stop()
+    if dist_file_ext == 'xls':
+        st.warning("⚠️ 检测到 .xls 格式，建议先手动转换为 .xlsx 格式以完整保留样式")
+        st.info("💡 转换方法：在 Excel 中打开文件，选择'文件 > 另存为 > Excel 工作簿 (.xlsx)'")
     
-    if len(dist_content) >= 100:
-        with tempfile.NamedTemporaryFile(delete=False, suffix='.xlsx') as tmp_preview:
-            tmp_preview.write(dist_content)
-            tmp_preview_path = tmp_preview.name
+    with tempfile.NamedTemporaryFile(delete=False, suffix='.xlsx') as tmp_preview:
+        if dist_file_ext == 'xls':
+            st.info("🔄 正在转换 .xls 为 .xlsx...")
+            try:
+                dist_content = dist_file.getvalue()
+                converted_content = convert_xls_to_xlsx_with_format(dist_content)
+                tmp_preview.write(converted_content)
+                st.success("✅ 转换成功！")
+            except Exception as e:
+                st.error(f"❌ 转换失败: {str(e)}")
+                os.unlink(tmp_preview.name)
+                st.stop()
+        else:
+            tmp_preview.write(dist_file.getvalue())
+        tmp_preview_path = tmp_preview.name
+    
+    try:
+        wb_preview = load_workbook(tmp_preview_path, data_only=False, keep_links=True)
+        ws_preview = wb_preview.active
         
-        try:
-            wb_preview = load_workbook(tmp_preview_path, data_only=False, keep_links=True)
-            ws_preview = wb_preview.active
+        col_info = detect_column_info(ws_preview)
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            product_model_options = [f"列{col_idx} - {get_column_name(ws_preview, col_idx, col_info.get('header_row_idx', 1))}" 
+                                   for col_idx in range(1, ws_preview.max_column + 1)]
             
-            col_info = detect_column_info(ws_preview)
+            default_product_model_idx = 0
+            if col_info['product_model_col_idx']:
+                default_product_model_idx = col_info['product_model_col_idx'] - 1
             
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                product_model_options = [f"列{col_idx} - {get_column_name(ws_preview, col_idx, col_info.get('header_row_idx', 1))}" 
-                                       for col_idx in range(1, ws_preview.max_column + 1)]
-                
-                default_product_model_idx = 0
-                if col_info['product_model_col_idx']:
-                    default_product_model_idx = col_info['product_model_col_idx'] - 1
-                
-                product_model_column = st.selectbox(
-                    "产品型号列",
-                    options=product_model_options,
-                    index=default_product_model_idx,
-                    help="选择包含产品型号的列"
-                )
-            
-            with col2:
-                target_column_options = [f"列{col_idx} - {get_column_name(ws_preview, col_idx, col_info.get('header_row_idx', 1))}" 
-                                        for col_idx in range(1, ws_preview.max_column + 1)]
-                
-                default_target_idx = 0
-                if col_info['target_col_idx']:
-                    default_target_idx = col_info['target_col_idx'] - 1
-                
-                target_column_select = st.selectbox(
-                    "目标列（要填入数据的列）",
-                    options=target_column_options,
-                    index=default_target_idx,
-                    help="选择要更新数据的列"
-                )
-            
-            data_start_row = st.number_input(
-                "数据起始行",
-                min_value=1,
-                max_value=ws_preview.max_row,
-                value=col_info.get('data_start_row', 4),
-                help="数据行开始的行号（表头之后的第一个数据行）"
+            product_model_column = st.selectbox(
+                "产品型号列",
+                options=product_model_options,
+                index=default_product_model_idx,
+                help="选择包含产品型号的列"
             )
+        
+        with col2:
+            target_column_options = [f"列{col_idx} - {get_column_name(ws_preview, col_idx, col_info.get('header_row_idx', 1))}" 
+                                    for col_idx in range(1, ws_preview.max_column + 1)]
             
-            st.info(f"📊 表格信息: 共 {ws_preview.max_row} 行, {ws_preview.max_column} 列")
+            default_target_idx = 0
+            if col_info['target_col_idx']:
+                default_target_idx = col_info['target_col_idx'] - 1
             
-            os.unlink(tmp_preview_path)
-            
-        except Exception as e:
-            st.warning(f"⚠️ 无法预览文件: {str(e)}")
-            st.warning("💡 请先点击'开始处理'按钮，系统会尝试自动识别列")
+            target_column_select = st.selectbox(
+                "目标列（要填入数据的列）",
+                options=target_column_options,
+                index=default_target_idx,
+                help="选择要更新数据的列"
+            )
+        
+        data_start_row = st.number_input(
+            "数据起始行",
+            min_value=1,
+            max_value=ws_preview.max_row,
+            value=col_info.get('data_start_row', 4),
+            help="数据行开始的行号（表头之后的第一个数据行）"
+        )
+        
+        st.info(f"📊 表格信息: 共 {ws_preview.max_row} 行, {ws_preview.max_column} 列")
+        
+        st.session_state['preview_file_path'] = tmp_preview_path
+        st.session_state['dist_file_ext'] = dist_file_ext
+        
+    except Exception as e:
+        st.warning(f"⚠️ 无法预览文件: {str(e)}")
+        st.warning("💡 请先点击'开始处理'按钮，系统会尝试自动识别列")
+        os.unlink(tmp_preview_path)
 else:
     st.info("💡 请先上传订单表，系统会自动识别列信息")
 
@@ -275,25 +320,24 @@ if st.button("开始处理", type="primary", use_container_width=True):
             status_text.text("📖 读取订单表...")
             
             try:
-                dist_content = dist_file.getvalue()
-                file_ext = dist_file.name.lower().split('.')[-1] if dist_file.name else 'xlsx'
-                
-                if file_ext == 'xls':
-                    status_text.text("🔄 转换 .xls 为 .xlsx 格式...")
-                    dist_content = convert_xls_to_xlsx(dist_content)
-                
-                if len(dist_content) < 100:
-                    st.error("❌ 订单表文件内容为空或过小，请检查文件是否正确")
-                    st.stop()
-                
-                with tempfile.NamedTemporaryFile(delete=False, suffix='.xlsx') as tmp_dist:
-                    tmp_dist.write(dist_content)
-                    tmp_dist_path = tmp_dist.name
+                if 'preview_file_path' in st.session_state and os.path.exists(st.session_state['preview_file_path']):
+                    tmp_dist_path = st.session_state['preview_file_path']
+                    file_ext = st.session_state.get('dist_file_ext', 'xlsx')
+                else:
+                    dist_content = dist_file.getvalue()
+                    file_ext = dist_file.name.lower().split('.')[-1] if dist_file.name else 'xlsx'
+                    
+                    if file_ext == 'xls':
+                        status_text.text("🔄 转换 .xls 为 .xlsx 格式...")
+                        dist_content = convert_xls_to_xlsx_with_format(dist_content)
+                    
+                    with tempfile.NamedTemporaryFile(delete=False, suffix='.xlsx') as tmp_dist:
+                        tmp_dist.write(dist_content)
+                        tmp_dist_path = tmp_dist.name
                 
                 with tempfile.NamedTemporaryFile(delete=False, suffix='.xlsx') as tmp_output:
                     tmp_output_path = tmp_output.name
                 
-                import shutil
                 shutil.copy2(tmp_dist_path, tmp_output_path)
                 
                 wb = load_workbook(tmp_output_path, data_only=False, keep_links=True)
@@ -370,7 +414,6 @@ if st.button("开始处理", type="primary", use_container_width=True):
             
             st.success(f"🎉 处理成功！共更新了 {updated_count} 个产品型号，跳过 {skipped_count} 个负数")
             
-            os.unlink(tmp_dist_path)
             os.unlink(tmp_output_path)
             
             models_in_erp_not_in_order = sorted(erp_models - order_models)
