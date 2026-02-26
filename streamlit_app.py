@@ -384,8 +384,10 @@ if st.button("开始处理", type="primary", use_container_width=True):
             
             for row in range(data_start_row, ws.max_row + 1):
                 model = ws.cell(row=row, column=product_model_col_idx).value
-                
+
                 if model:
+                    # 去除前后空格，避免因空格导致无法匹配
+                    model = model.strip()
                     order_models.add(model)
                     if model in model_diff_map:
                         diff_value = model_diff_map[model]
@@ -427,7 +429,8 @@ if st.button("开始处理", type="primary", use_container_width=True):
                     best_match = None
                     best_ratio = 0
                     for model in all_models:
-                        ratio = difflib.SequenceMatcher(None, target_model, model).ratio()
+                        # 去除空格后再比较，避免因空格导致相似度降低
+                        ratio = difflib.SequenceMatcher(None, target_model.strip(), model.strip()).ratio()
                         if ratio >= threshold and ratio > best_ratio:
                             best_ratio = ratio
                             best_match = model
