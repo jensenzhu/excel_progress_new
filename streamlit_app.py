@@ -287,7 +287,8 @@ if st.button("开始处理", type="primary", use_container_width=True):
                 if isinstance(code, str) and '-' in code:
                     parts = code.split('-')
                     if len(parts) >= 2:
-                        return '-'.join(parts[1:])
+                        # 去除空格，避免因空格导致无法匹配
+                        return '-'.join(parts[1:]).strip()
                 return None
             
             for col in merchant_code_cols:
@@ -299,9 +300,9 @@ if st.button("开始处理", type="primary", use_container_width=True):
                 st.error("❌ 未能提取任何产品型号")
                 st.stop()
             
-            df_source['产品型号'] = df_source[model_cols[0]]
+            df_source['产品型号'] = df_source[model_cols[0]].apply(lambda x: x.strip() if isinstance(x, str) else x)
             for col in model_cols[1:]:
-                df_source['产品型号'] = df_source['产品型号'].fillna(df_source[col])
+                df_source['产品型号'] = df_source['产品型号'].fillna(df_source[col].apply(lambda x: x.strip() if isinstance(x, str) else x))
             
             erp_models = set(df_source['产品型号'].dropna().unique())
             status_text.text(f"✅ 成功提取产品型号，共 {len(erp_models)} 个")
